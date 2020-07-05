@@ -62,5 +62,3 @@ for epoch in range(FLAGS.epochs):
               ' HR@5:'+str(hrat5)+' HR@10:'+str(hrat10)+' HR@20:'+str(hrat20)+
               ' nDCG5:'+str(ndcg5)+' nDCG10:'+str(ndcg10)+' nDCG20:'+str(ndcg20)+
               ' MRR:'+str(mrr)+' AUC:'+str(auc))
-    # output = sess.run(model.test,feed_dict)
-    # print(np.array(output).shape)
