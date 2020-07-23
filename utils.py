@@ -4,23 +4,23 @@ import random
 
 # load data and preprocessing
 def load_data():
-    with open('./data/rate_matrix.p','r') as source:
+    with open('./data/rate_matrix.p','rb') as source:
         rating = pkl.load(source).todense()
-    with open('./data/concept_embedding.p','r') as source:
+    with open('./data/concept_embedding.p','rb') as source:
         concept = np.array(pkl.load(source))
-    with open('./data/user_feature.p','r') as source:
+    with open('./data/user_feature.p','rb') as source:
         features = pkl.load(source).todense()
     features = preprocess_features(features)
-    with open('./data/adjacency_matrix.p','r') as source:
+    with open('./data/adjacency_matrix.p','rb') as source:
         adjacency = pkl.load(source).todense()
     adjacency = preprocess_adj(adjacency)
-    with open('./data/UC.p','r') as source:
+    with open('./data/UC.p','rb') as source:
         uc = pkl.load(source).todense()
     uc = preprocess_adj(uc)
-    with open('./data/user_action.p','r') as source:
+    with open('./data/user_action.p','rb') as source:
         user_action = pkl.load(source)
     negative = radom_negative_sample(user_action,rating.shape[1])
-    with open('./data/negative.p', 'w') as source:
+    with open('./data/negative.p', 'wb') as source:
         pkl.dump(negative,source)
 
     return rating,concept,features,adjacency,negative,uc
