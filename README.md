@@ -21,3 +21,9 @@ If you use ACKRec in your research or wish to refer to the baseline results, ple
 }
 ```
 
+## Environment
+```\
+Python3
+Tensorflow-1.13.1
+```
+

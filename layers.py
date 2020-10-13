@@ -64,6 +64,7 @@ class Layer(object):
         logging = kwargs.get('logging', False)
         self.logging = logging
         self.sparse_inputs = False
+        self.test = []
 
     def _call(self, inputs):
         return inputs
@@ -83,7 +84,7 @@ class Layer(object):
 
 class GraphConvolution(Layer):
     """Graph convolution layer."""
-    def __init__(self, input_dim, output_dim, placeholders, dropout=0.,
+    def __init__(self, input_dim, output_dim, length, placeholders, tag, dropout=0.,
                  sparse_inputs=False, act=tf.nn.relu, bias=False,
                  featureless=False, **kwargs):
         super(GraphConvolution, self).__init__(**kwargs)
@@ -94,20 +95,22 @@ class GraphConvolution(Layer):
             self.dropout = 0.
 
         self.act = act
-        self.support = placeholders['support']
+        self.support = placeholders['support_'+tag]
         self.sparse_inputs = sparse_inputs
         self.featureless = featureless
         self.bias = bias
+        self.tag = tag
+        self.length = length
 
         # helper variable for sparse dropout
         # self.num_features_nonzero = placeholders['num_features_nonzero']
 
-        with tf.variable_scope(self.name + '_vars'):
+        with tf.variable_scope(self.name+ '_' + self.tag + '_vars'):
             for i in range(len(self.support)):
                 self.vars['weights_' + str(i)] = glorot([input_dim, output_dim],
                                                         name='weights_' + str(i))
-            if self.bias:
-                self.vars['bias'] = zeros([output_dim], name='bias')
+                # self.vars['bias_'+str(i)] = zeros([output_dim,], name='bias_' + str(i))
+                self.vars['bias_' + str(i)] = tf.zeros(shape=(self.length, 1), name='bias_' + str(i))
 
         if self.logging:
             self._log_vars()
@@ -115,54 +118,76 @@ class GraphConvolution(Layer):
     def _call(self, inputs):
         supports = list()
         for i in range(len(self.support)):
-            if self.name == 'first':
+            if self.name == 'first'+self.tag: #这里注释了
                 x = inputs
             else:
                 x = inputs[i]
+            # x = inputs #做成concat需要修改三个地方，修改这里的输入，add输出，移除attention
 
         # dropout
             x = tf.nn.dropout(x, 1-self.dropout)
 
         # convolve
+        #     support = tf.matmul(self.support[i], x)
             if not self.featureless:
-                pre_sup = dot(x, self.vars['weights_' + str(i)],)
+                pre_sup = dot(x, self.vars['weights_' + str(i)])
             else:
                 pre_sup = self.vars['weights_' + str(i)]
             support = dot(self.support[i], pre_sup)
-            supports.append(support)
-        # output = tf.add_n(supports)
-        output = supports
+            # self.test.append(self.vars['bias_' + str(i)])
+            support = support + self.vars['bias_' + str(i)]
+            supports.append(self.act(support))
+        # output = tf.add_n(supports) #这里解除注释了
+        output = supports #这里注释了
         # bias
-        if self.bias:
-            output += self.vars['bias']
-
+        # return output
         return self.act(output)
 
-class RateLayer():
-    def __init__(self,placeholders,user_dim,item_dim):
-        self.name = 'RateLayer'
-        self.rating = placeholders['rating']
-        self.item = placeholders['concept']
-        self.vars = {}
-        with tf.variable_scope(self.name + '_vars'):
-            self.vars['user_latent'] = tf.get_variable(initializer=tf.truncated_normal(shape=[int(FLAGS.latent_dim), user_dim], stddev=0.1), name='user_latent_matrix')
-            self.vars['item_latent'] = tf.get_variable(initializer=tf.truncated_normal(shape=[int(FLAGS.latent_dim), item_dim], stddev=0.1), name='item_latent_matrix')
-            self.vars['user_specific'] = tf.get_variable(initializer=tf.truncated_normal(shape=[int(FLAGS.output_dim), item_dim], stddev=0.1), name='user_specific_matrix')
-            self.vars['item_specific'] = tf.get_variable(initializer=tf.truncated_normal(shape=[int(self.item.shape[1]), user_dim], stddev=0.1), name='item_specific_matrix')
-            self.vars['alpha1'] = tf.get_variable(shape=(1,), dtype=tf.float32, initializer=tf.ones_initializer(), name='alpha1')
-            self.vars['alpha2'] = tf.get_variable(shape=(1,), dtype=tf.float32, initializer=tf.ones_initializer(), name='alpha2')
+class RatLayer():
+    def __init__(self, user, item, act=tf.nn.relu):
+        self.user = user
+        self.item = item
+        self.act = act
 
-    def __call__(self, outputs):
-        self.user = outputs
-        rate_matrix = tf.matmul(tf.transpose(self.vars['user_latent']),self.vars['item_latent'])
-        rate_matrix += (self.vars['alpha1']*tf.matmul(self.user,self.vars['user_specific']))
-        rate_matrix += (self.vars['alpha2']*tf.matmul(tf.transpose(self.vars['item_specific']),tf.transpose(self.item)))
-        return rate_matrix
+    def __call__(self):
+        rate_matrix = tf.matmul(self.user,tf.transpose(self.item))
+        return self.act(rate_matrix)
+
+
+class RateLayer():
+    def __init__(self, user, item, user_dim, item_dim, ac=tf.nn.relu):
+        self.user = user
+        self.item = item
+        self.name = 'RateLayer'
+        self.ac = ac
+        self.vars = {}
+        with tf.name_scope(self.name + '_vars'):
+            self.vars['user_latent'] = tf.Variable(tf.truncated_normal(shape=[int(FLAGS.latent_dim), user_dim],
+                                                                       stddev=1.0), name='user_latent_matrix')
+            self.vars['item_latent'] = tf.Variable(tf.truncated_normal(shape=[int(FLAGS.latent_dim), item_dim],
+                                                                       stddev=1.0), name='item_latent_matrix')
+            self.vars['user_specific'] = tf.Variable(tf.truncated_normal(shape=[int(FLAGS.output_dim), item_dim],
+                                                                         stddev=0.1), name='user_specific')
+            self.vars['item_specific'] = tf.Variable(tf.truncated_normal(shape=[int(FLAGS.output_dim), user_dim],
+                                                                         stddev=0.1), name='item_specific')
+            self.vars['user_bias'] = tf.zeros(shape=[user_dim,1],name='user_bias')
+            self.vars['item_bias'] = tf.zeros(shape=[item_dim,1], name='item_bias')
+            self.vars['alpha1'] = tf.Variable(initial_value=1.0, name='alpha1')
+            self.vars['alpha2'] = tf.Variable(initial_value=1.0, name='alpha2')
+
+    def __call__(self):
+        rate_matrix1 = tf.matmul(tf.transpose(self.vars['user_latent']),self.vars['item_latent'])
+        u_matrix = self.vars['alpha1']*(tf.matmul(self.user, self.vars['user_specific'])+self.vars['user_bias'])
+        i_matrix = self.vars['alpha2']*(tf.transpose(tf.matmul(self.item,
+                                                               self.vars['item_specific'])+self.vars['item_bias']))
+        rate_matrix2 = rate_matrix1+u_matrix+i_matrix
+        return rate_matrix2
 
 class SimpleAttLayer():
-    def __init__(self, attention_size, time_major=False):
+    def __init__(self, attention_size, tag, time_major=False):
         self.attention_size = attention_size
         self.time_major = time_major
+        self.tag = tag
         self.vars = {}
 
     def __call__(self, inputs):
@@ -178,10 +203,11 @@ class SimpleAttLayer():
 
         # Trainable parameters
 
-        with tf.variable_scope('v'):
+        with tf.variable_scope('v_'+self.tag):
             # Applying fully connected layer with non-linear activation to each of the B*T timestamps;
             #  the shape of `v` is (B,T,D)*(D,A)=(B,T,A), where A=attention_size
-            w_omega = tf.get_variable(initializer=tf.random_normal([hidden_size, self.attention_size], stddev=0.1), name='w_omega')
+            w_omega = tf.get_variable(initializer=tf.random_normal([hidden_size, self.attention_size],
+                                                                   stddev=0.1), name='w_omega')
             self.vars['w_omega'] = w_omega
             b_omega = tf.get_variable(initializer=tf.random_normal([self.attention_size], stddev=0.1), name='b_omega')
             self.vars['b_omega'] = b_omega
@@ -195,6 +221,7 @@ class SimpleAttLayer():
         self.alphas = vu
 
         # Output of (Bi-)RNN is reduced with attention vector; the result has (B,D) shape
-        output = tf.reduce_sum(inputs*tf.expand_dims(alphas, -1), 1)
+
+        output = tf.reduce_sum(inputs*tf.expand_dims(alphas, -1), 0)
 
         return output
